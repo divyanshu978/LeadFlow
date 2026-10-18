@@ -1,69 +1,165 @@
-import Image from "next/image";
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+const statuses = [
+  ["", "All statuses"],
+  ["NEW", "New"],
+  ["CONTACTED", "Contacted"],
+  ["QUALIFIED", "Qualified"],
+  ["PROPOSAL_SENT", "Proposal sent"],
+  ["WON", "Won"],
+  ["LOST", "Lost"],
+];
+
+const statusLabel = Object.fromEntries(statuses);
+
+function formatTimeAgo(value) {
+  if (!value) return "No discussions yet";
+  const minutes = Math.max(1, Math.round((Date.now() - new Date(value)) / 60000));
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function isToday(value) {
+  if (!value) return false;
+  const date = new Date(value);
+  const today = new Date();
+  return date.toDateString() === today.toDateString();
+}
+
+function isOverdue(value) {
+  return value && new Date(value) < new Date() && !isToday(value);
+}
+
+function toInputDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset();
+  return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 16);
+}
+
+async function request(url, options) {
+  const response = await fetch(url, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || "Something went wrong");
+  return payload.data;
+}
 
 export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.js
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+  const [leads, setLeads] = useState([]);
+  const [filter, setFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [selectedLead, setSelectedLead] = useState(null);
+  const [isAdding, setIsAdding] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadLeads = useCallback(async () => {
+    try {
+      setError("");
+      const query = new URLSearchParams();
+      if (filter) query.set("status", filter);
+      if (search) query.set("search", search);
+      setLeads(await request(`/api/leads?${query}`));
+    } catch (loadError) {
+      setError(loadError.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [filter, search]);
+
+  useEffect(() => {
+    const timer = setTimeout(loadLeads, 150);
+    return () => clearTimeout(timer);
+  }, [loadLeads]);
+
+  const followUps = useMemo(
+    () => leads.filter((lead) => isToday(lead.followUpAt)),
+    [leads],
   );
+
+  async function addLead(form) {
+    const lead = await request("/api/leads", {
+      method: "POST",
+      body: JSON.stringify(form),
+    });
+    setLeads((current) => [lead, ...current]);
+    setIsAdding(false);
+  }
+
+  function updateLead(updated) {
+    setLeads((current) =>
+      current.map((lead) => (lead.id === updated.id ? updated : lead)),
+    );
+    setSelectedLead(updated);
+  }
+
+  return (
+    <main className="shell">
+      <header className="topbar">
+        <div className="brand"><span className="brand-mark">✦</span><span>LeadFlow</span></div>
+        <div className="topbar-user"><span className="avatar">AK</span><span>Alex Kim</span><span className="chevron">⌄</span></div>
+      </header>
+      <section className="content">
+        <div className="page-heading">
+          <div><p className="eyebrow">Workspace / Leads</p><h1>All leads</h1><p className="subheading">Keep your conversations moving forward.</p></div>
+          <button className="primary-button" onClick={() => setIsAdding(true)}>＋ Add new lead</button>
+        </div>
+        <div className="toolbar">
+          <label className="search-box"><span>⌕</span><input placeholder="Search leads..." value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+          <div className="filter-label">FILTERS:</div><div className="filter-list">{statuses.map(([value, label]) => <button key={label} className={filter === value ? "filter active" : "filter"} onClick={() => setFilter(value)}>{value === "" ? "All" : label}</button>)}</div>
+        </div>
+        {error && <div className="error-banner">{error}</div>}
+        {followUps.length > 0 && <section className="follow-up-section"><div className="section-heading"><h2>Today&apos;s follow-ups</h2><span>{followUps.length}</span></div><div className="follow-up-grid">{followUps.map((lead) => <LeadCard key={lead.id} lead={lead} onClick={() => setSelectedLead(lead)} highlight />)}</div></section>}
+        <section className="lead-section"><div className="section-heading"><h2>{filter ? statusLabel[filter] : "All leads"}</h2><span>{leads.length}</span></div>{loading ? <div className="empty-state">Loading leads...</div> : leads.length === 0 ? <div className="empty-state">No leads match your search.</div> : <div className="lead-grid">{leads.map((lead) => <LeadCard key={lead.id} lead={lead} onClick={() => setSelectedLead(lead)} />)}</div>}</section>
+      </section>
+      {selectedLead && <TimelineDialog lead={selectedLead} onClose={() => setSelectedLead(null)} onUpdate={updateLead} />}
+      {isAdding && <AddLeadDialog onClose={() => setIsAdding(false)} onSave={addLead} />}
+    </main>
+  );
+}
+
+function LeadCard({ lead, onClick, highlight }) {
+  const note = lead.discussions?.[0]?.note;
+  return <button className={`lead-card ${highlight ? "highlight" : ""}`} onClick={onClick}><div className="card-top"><div className="lead-name"><strong>{lead.name} <small>{lead.company ? `(${lead.company})` : ""}</small></strong><span className="last-note"><b>Last Note:</b> {note || "No discussion logged yet."} <em>{formatTimeAgo(lead.discussions?.[0]?.createdAt)}</em></span></div><span className={`status status-${lead.status.toLowerCase()}`}>{statusLabel[lead.status]}</span></div>{lead.followUpAt && <div className={`follow-up ${isOverdue(lead.followUpAt) ? "overdue" : ""}`}>🔔 Follow-up {isOverdue(lead.followUpAt) ? "overdue" : isToday(lead.followUpAt) ? "today" : new Date(lead.followUpAt).toLocaleDateString()}</div>}</button>;
+}
+
+function Modal({ title, onClose, children }) {
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><div className="modal"><div className="modal-header"><h2>{title}</h2><button className="close-button" onClick={onClose}>×</button></div>{children}</div></div>;
+}
+
+function TimelineDialog({ lead, onClose, onUpdate }) {
+  const [note, setNote] = useState("");
+  const [followUpAt, setFollowUpAt] = useState(toInputDate(lead.followUpAt));
+  const [status, setStatus] = useState(lead.status);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function saveDiscussion(event) {
+    event.preventDefault();
+    if (!note.trim()) return;
+    setSaving(true);
+    try {
+      await request(`/api/leads/${lead.id}/discussions`, { method: "POST", body: JSON.stringify({ note, ...(followUpAt ? { followUpAt: new Date(followUpAt).toISOString() } : { followUpAt: null }) }) });
+      const updated = await request(`/api/leads/${lead.id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      onUpdate(updated);
+      setNote("");
+    } catch (saveError) { setError(saveError.message); } finally { setSaving(false); }
+  }
+
+  return <Modal title="Lead timeline" onClose={onClose}><div className="lead-profile"><span className="lead-avatar large">{lead.name.split(" ").map((part) => part[0]).join("").slice(0, 2)}</span><div><h3>{lead.name}</h3><p>{lead.company || "Independent"} {lead.phone && `· ${lead.phone}`}</p></div><select value={status} onChange={(event) => setStatus(event.target.value)}>{statuses.slice(1).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div><div className="timeline">{(lead.discussions || []).map((discussion) => <article className="timeline-item" key={discussion.id}><span className="timeline-dot" /><div><div className="timeline-meta"><strong>You</strong><time>{new Date(discussion.createdAt).toLocaleString()}</time></div><p>{discussion.note}</p></div></article>)}{!lead.discussions?.length && <p className="muted">No discussions yet. Start the conversation below.</p>}</div><form className="discussion-form" onSubmit={saveDiscussion}><label>Add a discussion note<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="What did you discuss?" rows="3" required /></label><div className="form-row"><label>Follow-up date & time<input type="datetime-local" value={followUpAt} onChange={(event) => setFollowUpAt(event.target.value)} /></label><button className="primary-button" disabled={saving}>{saving ? "Saving..." : "Save discussion"}</button></div>{error && <p className="form-error">{error}</p>}</form></Modal>;
+}
+
+function AddLeadDialog({ onClose, onSave }) {
+  const [form, setForm] = useState({ name: "", company: "", phone: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(event) { event.preventDefault(); setSaving(true); try { await onSave(form); } catch (saveError) { setError(saveError.message); } finally { setSaving(false); } }
+  return <Modal title="Add new lead" onClose={onClose}><form className="add-form" onSubmit={submit}><label>Name *<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. Priya Shah" /></label><label>Company<input value={form.company} onChange={(event) => setForm({ ...form, company: event.target.value })} placeholder="Company name" /></label><label>Phone<input value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="+91 98765 43210" /></label>{error && <p className="form-error">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={saving}>{saving ? "Adding..." : "Add lead"}</button></div></form></Modal>;
 }
