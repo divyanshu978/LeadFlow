@@ -139,13 +139,17 @@ Request validation errors return `422`, missing leads return `404`, successful c
 
 ## Screenshots
 
-The dashboard includes the following views:
+### Lead dashboard
 
-- Lead list with status filters and today's follow-ups.
-- Add new lead dialog.
-- Lead timeline with status selection, discussion notes, and follow-up scheduling.
+![LeadFlow dashboard](public/screenshots/dashboard.png)
 
-Add exported screenshots to `public/screenshots/` and reference them here when they are available.
+### Add a new lead
+
+![Add new lead dialog](public/screenshots/add-lead.png)
+
+### Lead timeline
+
+![Lead timeline with discussion notes and follow-up scheduling](public/screenshots/lead-timeline.png)
 
 ## Future Improvements
 
